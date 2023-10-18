@@ -3,8 +3,10 @@
 #include <windows.h>
 
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <list>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -111,8 +113,11 @@ class Elli : public Shape {
    public:
 	D2D1_ELLIPSE ellipse;
 	Elli() : Shape() {}
-	Elli(size_t* nextColor, ShapeKind shape) : Shape(nextColor, shape) {}
+	Elli(size_t* nextColor) : Shape(nextColor, EllipseK) {}
 
+	static void Push(list<shared_ptr<Shape>>* shapes, size_t* nextColor) {
+		shapes->push_back(shared_ptr<Shape>(new Elli(nextColor)));
+	}
 	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
 		if (points.size() >= 2) {
 			ellipse =
@@ -146,8 +151,11 @@ class Elli : public Shape {
 class Line : public Shape {
    public:
 	Line() : Shape() {}
-	Line(size_t* nextColor, ShapeKind shape) : Shape(nextColor, shape) {}
+	Line(size_t* nextColor) : Shape(nextColor, LineK) {}
 
+	static void Push(list<shared_ptr<Shape>>* shapes, size_t* nextColor) {
+		shapes->push_back(shared_ptr<Shape>(new Line(nextColor)));
+	}
 	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
 		if (points.size() >= 2) {
 			pBrush->SetColor(D2D1::ColorF(colors[color]));
@@ -176,8 +184,11 @@ class Square : public Shape {
    public:
 	D2D1_RECT_F square;
 	Square() : Shape() {}
-	Square(size_t* nextColor, ShapeKind shape) : Shape(nextColor, shape) {}
+	Square(size_t* nextColor) : Shape(nextColor, SquareK) {}
 
+	static void Push(list<shared_ptr<Shape>>* shapes, size_t* nextColor) {
+		shapes->push_back(shared_ptr<Shape>(new Square(nextColor)));
+	}
 	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
 		if (points.size() >= 2) {
 			square =
@@ -203,6 +214,14 @@ class Square : public Shape {
 		(*shapes).push_back(shared_ptr<Square>(new Square(*newSquare)));
 	}
 };
+
+map<int, function<void(string myString, list<shared_ptr<Shape>>* shapes)>>
+	readmap{
+		{LineK, Line::Read}, {EllipseK, Elli::Read}, {SquareK, Square::Read}};
+
+map<int, function<void(list<shared_ptr<Shape>>* shapes, size_t* nextColor)>>
+	pushmap{
+		{LineK, Line::Push}, {EllipseK, Elli::Push}, {SquareK, Square::Push}};
 
 // 窗口
 class MainWindow : public BaseWindow<MainWindow> {
@@ -269,21 +288,7 @@ class MainWindow : public BaseWindow<MainWindow> {
 };
 
 void MainWindow::CreateShape() {
-	switch (shapekind) {
-		case EllipseK: {
-			shapes.push_back(shared_ptr<Shape>(new Elli(&nextColor, EllipseK)));
-			break;
-		}
-		case LineK: {
-			shapes.push_back(shared_ptr<Shape>(new Line(&nextColor, LineK)));
-			break;
-		}
-		case SquareK: {
-			shapes.push_back(
-				shared_ptr<Shape>(new Square(&nextColor, SquareK)));
-			break;
-		}
-	}
+	pushmap[shapekind](&shapes, &nextColor);
 	newShape = shapes.back();
 }
 
@@ -497,15 +502,7 @@ void MainWindow::ReadFile() {
 			getline(myFile, myString);
 			if (myString.size() == 0) break;
 			int shapekind = atoi(&myString[0]);
-			if (shapekind == ShapeKind::EllipseK) {
-				Elli::Read(myString, &shapes);
-			}
-			if (shapekind == ShapeKind::LineK) {
-				Line::Read(myString, &shapes);
-			}
-			if (shapekind == ShapeKind::SquareK) {
-				Square::Read(myString, &shapes);
-			}
+			readmap[shapekind](myString, &shapes);
 		}
 		OnPaint();
 		myFile.close();
