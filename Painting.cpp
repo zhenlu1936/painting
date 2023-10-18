@@ -19,6 +19,7 @@ using std::vector;
 
 enum ShapeMode { LineMode, SquareMode, EllipseMode, SelectMode, DragMode };
 enum DrawMode { DragDraw, ClickDraw };
+enum ShapeKind { LineK, SquareK, EllipseK };
 
 // 颜色枚举
 D2D1::ColorF::Enum colors[] = {D2D1::ColorF::Yellow, D2D1::ColorF::Salmon,

@@ -6,3 +6,5 @@
 #define ID_L_MODE                  40006
 #define ID_READ 40007
 #define ID_SAVE 40008
+#define ID_DRAG 40009
+#define ID_CLICK 40010
