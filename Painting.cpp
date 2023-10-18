@@ -8,20 +8,24 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 using namespace std;
+using std::vector;
 
 #pragma comment(lib, "d2d1")
 
 #include "basewin.h"
 #include "resource.h"
 
-enum Mode { LineMode, SquareMode, EllipseMode, SelectMode, DragMode };
+enum ShapeMode { LineMode, SquareMode, EllipseMode, SelectMode, DragMode };
+enum DrawMode { DragDraw, ClickDraw };
+
 // 颜色枚举
 D2D1::ColorF::Enum colors[] = {D2D1::ColorF::Yellow, D2D1::ColorF::Salmon,
 							   D2D1::ColorF::LimeGreen, D2D1::ColorF::Purple};
-template <class T>
 
 // 安全释放指针
+template <class T>
 void SafeRelease(T** ppT) {
 	if (*ppT) {
 		(*ppT)->Release();
@@ -58,43 +62,68 @@ class Square;
 // 图形
 class Shape {
    public:
+	int color;
+	vector<D2D1_POINT_2F> points;
+	Shape() : color(0) {}
+	Shape(size_t* nextColor) {
+		color = *nextColor;
+		*nextColor = (*nextColor + 1) % ARRAYSIZE(colors);
+	}
+
 	virtual void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {}
-	virtual void Change(D2D1_POINT_2F ptMouse, float x, float y) {}
 	virtual BOOL HitTest(float x, float y) { return FALSE; }
-	virtual void Drag(D2D1_POINT_2F ptMouse, float x, float y) {}
+	virtual void Drag(D2D1_POINT_2F ptMouse, D2D1_POINT_2F nowMouse);
 	virtual void Save(fstream* myFile) {}
+	virtual void SaveCommon(fstream* myFile);
+	static void ReadCommon(string myString, Shape* nowShape);
 };
+
+void Shape::Drag(D2D1_POINT_2F ptMouse, D2D1_POINT_2F nowMouse) {
+	for (auto i = points.begin(); i != points.end(); i++) {
+		i->x += nowMouse.x - ptMouse.x;
+		i->y += nowMouse.y - ptMouse.y;
+	}
+}
+
+void Shape::SaveCommon(fstream* myFile) {
+	*myFile << to_string(color) << " ";
+	for (auto i : points) {
+		*myFile << to_string(i.x) << " ";
+		*myFile << to_string(i.y) << " ";
+	}
+	*myFile << "\n";
+}
+
+void Shape::ReadCommon(string myString, Shape* nowShape) {
+	stringstream ins(myString);
+	ins >> nowShape->color;
+	while (ins) {
+		nowShape->points.push_back(D2D1::Point2F());
+		ins >> nowShape->points.back().x;
+		ins >> nowShape->points.back().y;
+	}
+}
 
 // 椭圆
 class Elli : public Shape {
    public:
-	int color;
 	D2D1_ELLIPSE ellipse;
-	Elli() : color(0), ellipse(D2D1::Ellipse(D2D1::Point2F(), 0, 0)) {}
-	Elli(int Color, D2D1_POINT_2F point, float width, float height)
-		: color(Color), ellipse(D2D1::Ellipse(point, width, height)) {}
+	Elli() : Shape() {}
+	Elli(size_t* nextColor) : Shape(nextColor) {}
 
-	static void Insert(D2D1_POINT_2F* ptMouse, list<shared_ptr<Shape>>* shapes,
-					   list<shared_ptr<Shape>>::iterator* selection,
-					   size_t* nextColor) {	 // 必须插入新分配好的空间！
-		Elli* newElli = new Elli(*nextColor, *ptMouse, 0, 0);
-		*selection = (*shapes).insert((*shapes).end(),
-									  shared_ptr<Shape>(new Elli(*newElli)));
-		*nextColor = (*nextColor + 1) % ARRAYSIZE(colors);
-		*ptMouse = newElli->ellipse.point;
-	}
 	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
-		pBrush->SetColor(D2D1::ColorF(colors[color]));
-		pRT->FillEllipse(ellipse, pBrush);
-		pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
-		pRT->DrawEllipse(ellipse, pBrush);
-	}
-	void Change(D2D1_POINT_2F ptMouse, float x, float y) {
-		const float width = (x - ptMouse.x) / 2;
-		const float height = (y - ptMouse.y) / 2;
-		const float x1 = ptMouse.x + width;
-		const float y1 = ptMouse.y + height;
-		ellipse = D2D1::Ellipse(D2D1::Point2F(x1, y1), width, height);
+		if (points.size() >= 2) {
+			ellipse =
+				D2D1::Ellipse(D2D1::Point2F((points[0].x + points[1].x) / 2,
+											(points[0].y + points[1].y) / 2),
+							  (points[0].x - points[1].x) / 2,
+							  (points[0].y - points[1].y) / 2);
+			pBrush->SetColor(D2D1::ColorF(colors[color]));
+			pRT->FillEllipse(ellipse, pBrush);
+			pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
+			pRT->DrawEllipse(ellipse, pBrush);
+		} else
+			free(this);
 	}
 	BOOL HitTest(float x, float y) {
 		const float a = ellipse.radiusX;
@@ -104,90 +133,49 @@ class Elli : public Shape {
 		const float d = ((x1 * x1) / (a * a)) + ((y1 * y1) / (b * b));
 		return d <= 1.0f;
 	}
-	void Drag(D2D1_POINT_2F ptMouse, float x, float y) {
-		ellipse.point.x += x - ptMouse.x;
-		ellipse.point.y += y - ptMouse.y;
-	}
 	void Save(fstream* myFile) {
 		*myFile << "E"
 				<< " ";
-		*myFile << to_string(color) << " ";
-		*myFile << to_string(ellipse.point.x) << " ";
-		*myFile << to_string(ellipse.point.y) << " ";
-		*myFile << to_string(ellipse.radiusX) << " ";
-		*myFile << to_string(ellipse.radiusY) << "\n";
+		SaveCommon(myFile);
 	}
 	static void Read(string myString, list<shared_ptr<Shape>>* shapes) {
 		Elli* newElli = new Elli;
-		stringstream ins(myString);
-		ins >> newElli->color;
-		ins >> newElli->ellipse.point.x;
-		ins >> newElli->ellipse.point.y;
-		ins >> newElli->ellipse.radiusX;
-		ins >> newElli->ellipse.radiusY;
-		(*shapes).insert((*shapes).end(), shared_ptr<Elli>(new Elli(*newElli)));
+		ReadCommon(myString, newElli);
+		(*shapes).push_back(shared_ptr<Elli>(new Elli(*newElli)));
 	}
 };
 
 // 直线
 class Line : public Shape {
    public:
-	D2D1_POINT_2F point1;
-	D2D1_POINT_2F point2;
-	int color;
-	Line() : point1(D2D1::Point2F()), point2(D2D1::Point2F()) {}
-	Line(int Color, D2D1_POINT_2F p1, D2D1_POINT_2F p2)
-		: color(Color), point1(p1), point2(p2) {}
+	Line() : Shape() {}
+	Line(size_t* nextColor) : Shape(nextColor) {}
 
-	static void Insert(D2D1_POINT_2F* ptMouse, list<shared_ptr<Shape>>* shapes,
-					   list<shared_ptr<Shape>>::iterator* selection,
-					   size_t* nextColor) {
-		Line* newLine = new Line(*nextColor, *ptMouse, *ptMouse);
-		*selection = (*shapes).insert((*shapes).end(),
-									  shared_ptr<Shape>(new Line(*newLine)));
-		*nextColor = (*nextColor + 1) % ARRAYSIZE(colors);
-		*ptMouse = newLine->point1;
-	}
 	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
-		pBrush->SetColor(D2D1::ColorF(colors[color]));
-		pRT->DrawLine(point1, point2, pBrush);
-	}
-	void Change(D2D1_POINT_2F ptMouse, float x, float y) {
-		point2 = D2D1::Point2F(x, y);
+		if (points.size() >= 2) {
+			pBrush->SetColor(D2D1::ColorF(colors[color]));
+			pRT->DrawLine(points[0], points[1], pBrush);
+		} else
+			free(this);
 	}
 	BOOL HitTest(float x, float y) {
-		const float x1 = point1.x;
-		const float x2 = point2.x;
-		const float y1 = point1.y;
-		const float y2 = point2.y;
+		const float x1 = points[0].x;
+		const float x2 = points[1].x;
+		const float y1 = points[0].y;
+		const float y2 = points[1].y;
 		return x <= max(x1, x2) && x >= min(x1, x2) && y <= max(y1, y2) &&
 			   y >= min(y1, y2) &&
 			   abs((x - x1) / (y - y1) - (x - x2) / (y - y2)) <= 0.05;
 	}
-	void Drag(D2D1_POINT_2F ptMouse, float x, float y) {
-		point1.x += x - ptMouse.x;
-		point1.y += y - ptMouse.y;
-		point2.x += x - ptMouse.x;
-		point2.y += y - ptMouse.y;
-	}
 	void Save(fstream* myFile) {
 		*myFile << "L"
 				<< " ";
-		*myFile << to_string(color) << " ";
-		*myFile << to_string(point1.x) << " ";
-		*myFile << to_string(point1.y) << " ";
-		*myFile << to_string(point2.x) << " ";
-		*myFile << to_string(point2.y) << "\n";
+		SaveCommon(myFile);
 	}
 	static void Read(string myString, list<shared_ptr<Shape>>* shapes) {
 		Line* newLine = new Line;
-		stringstream ins(myString);
-		ins >> newLine->color;
-		ins >> newLine->point1.x;
-		ins >> newLine->point1.y;
-		ins >> newLine->point2.x;
-		ins >> newLine->point2.y;
-		(*shapes).insert((*shapes).end(), shared_ptr<Line>(new Line(*newLine)));
+		ReadCommon(myString, newLine);
+		(*shapes).push_back(shared_ptr<Line>(new Line(*newLine)));
 	}
 };
 
@@ -195,29 +183,19 @@ class Line : public Shape {
 class Square : public Shape {
    public:
 	D2D1_RECT_F square;
-	int color;
-	Square() : color(0), square(D2D1::RectF(0, 0, 0, 0)) {}
-	Square(int Color, float left, float top, float right, float bottom)
-		: color(Color), square(D2D1::RectF(left, top, right, bottom)) {}
+	Square() : Shape() {}
+	Square(size_t* nextColor) : Shape(nextColor) {}
 
-	static void Insert(D2D1_POINT_2F* ptMouse, list<shared_ptr<Shape>>* shapes,
-					   list<shared_ptr<Shape>>::iterator* selection,
-					   size_t* nextColor) {
-		Square* newSquare = new Square(*nextColor, (*ptMouse).x, (*ptMouse).y,
-									   (*ptMouse).x, (*ptMouse).y);
-		*selection = (*shapes).insert(
-			(*shapes).end(), shared_ptr<Shape>(new Square(*newSquare)));
-		*nextColor = (*nextColor + 1) % ARRAYSIZE(colors);
-		*ptMouse = D2D1::Point2F(newSquare->square.left, newSquare->square.top);
-	}
 	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
-		pBrush->SetColor(D2D1::ColorF(colors[color]));
-		pRT->FillRectangle(square, pBrush);
-		pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
-		pRT->DrawRectangle(square, pBrush);
-	}
-	void Change(D2D1_POINT_2F ptMouse, float x, float y) {
-		square = D2D1::Rect(ptMouse.x, ptMouse.y, x, y);
+		if (points.size() >= 2) {
+			square =
+				D2D1::RectF(points[0].x, points[0].y, points[1].x, points[1].y);
+			pBrush->SetColor(D2D1::ColorF(colors[color]));
+			pRT->FillRectangle(square, pBrush);
+			pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
+			pRT->DrawRectangle(square, pBrush);
+		} else
+			free(this);
 	}
 	BOOL HitTest(float x, float y) {
 		const float x1 = square.left;
@@ -227,31 +205,15 @@ class Square : public Shape {
 		return x <= max(x1, x2) && x >= min(x1, x2) && y <= max(y1, y2) &&
 			   y >= min(y1, y2);
 	}
-	void Drag(D2D1_POINT_2F ptMouse, float x, float y) {
-		square.left += x - ptMouse.x;
-		square.top += y - ptMouse.y;
-		square.right += x - ptMouse.x;
-		square.bottom += y - ptMouse.y;
-	}
 	void Save(fstream* myFile) {
 		*myFile << "S"
 				<< " ";
-		*myFile << to_string(color) << " ";
-		*myFile << to_string(square.left) << " ";
-		*myFile << to_string(square.top) << " ";
-		*myFile << to_string(square.right) << " ";
-		*myFile << to_string(square.bottom) << "\n";
+		SaveCommon(myFile);
 	}
 	static void Read(string myString, list<shared_ptr<Shape>>* shapes) {
 		Square* newSquare = new Square;
-		stringstream ins(myString);
-		ins >> newSquare->color;
-		ins >> newSquare->square.left;
-		ins >> newSquare->square.top;
-		ins >> newSquare->square.right;
-		ins >> newSquare->square.bottom;
-		(*shapes).insert((*shapes).end(),
-						 shared_ptr<Square>(new Square(*newSquare)));
+		ReadCommon(myString, newSquare);
+		(*shapes).push_back(shared_ptr<Square>(new Square(*newSquare)));
 	}
 };
 
@@ -273,9 +235,9 @@ class MainWindow : public BaseWindow<MainWindow> {
 	void OnPaint();
 	void Resize();
 	void OnLButtonDown(int pixelX, int pixelY, DWORD flags);
+	void OnLButtonDouble(int pixelX, int pixelY, DWORD flags);
 	void OnLButtonUp();
 	void OnMouseMove(int pixelX, int pixelY, DWORD flags);
-	void OnKeyDown(UINT vkey);
 
    public:
 	MainWindow()
@@ -284,11 +246,15 @@ class MainWindow : public BaseWindow<MainWindow> {
 		  pBrush(NULL),
 		  ptMouse(D2D1::Point2F()),
 		  nextColor(0),
+		  shapemode(EllipseMode),
+		  drawmode(DrawMode::DragDraw),
+		  newShape(NULL),
 		  selection(shapes.end()) {}
 
+	shared_ptr<Shape> newShape;
 	list<shared_ptr<Shape>> shapes;
-	list<shared_ptr<Shape>>::iterator selection;
-	shared_ptr<Shape> Selection() {
+	list<shared_ptr<Shape>>::iterator selection;  // 急需更改
+	shared_ptr<Shape> Selection() {				  // 急需更改
 		if (selection == shapes.end()) {
 			return nullptr;
 		} else {
@@ -296,13 +262,51 @@ class MainWindow : public BaseWindow<MainWindow> {
 		}
 	}
 	size_t nextColor;
-	Mode mode;
-	void SetMode(Mode m);
+	ShapeMode shapemode;
+	DrawMode drawmode;
+	void SetShapeMode(ShapeMode m);
+	void SetDrawMode(DrawMode m);
+
+	void CreateShape();
+	void DragDraw();
+	void ClickDraw();
+
 	void ReadFile();
 	void SaveFile();
 	PCWSTR ClassName() const { return L"Circle Window Class"; }
 	LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
 };
+
+void MainWindow::CreateShape() {
+	switch (shapemode) {
+		case EllipseMode: {
+			shapes.push_back(shared_ptr<Shape>(new Elli(&nextColor)));
+			break;
+		}
+		case LineMode: {
+			shapes.push_back(shared_ptr<Shape>(new Line(&nextColor)));
+			break;
+		}
+		case SquareMode: {
+			shapes.push_back(shared_ptr<Shape>(new Square(&nextColor)));
+			break;
+		}
+	}
+	newShape = shapes.back();
+}
+
+void MainWindow::DragDraw() {
+	CreateShape();
+	newShape->points.push_back(ptMouse);
+	newShape->points.push_back(ptMouse);
+}
+
+void MainWindow::ClickDraw() {
+	if (newShape == NULL) {
+		CreateShape();
+	}
+	newShape->points.push_back(ptMouse);
+}
 
 // 创建图形资源
 HRESULT MainWindow::CreateGraphicsResources() {
@@ -342,7 +346,8 @@ void MainWindow::OnPaint() {
 
 		pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::SkyBlue));
 		for (auto i = shapes.begin(); i != shapes.end(); ++i) {
-			(*i)->Draw(pRenderTarget, pBrush);
+			if ((*i) != newShape || drawmode == DrawMode::DragDraw)
+				(*i)->Draw(pRenderTarget, pBrush);
 		}
 		hr = pRenderTarget->EndDraw();
 		if (FAILED(hr) || hr == D2DERR_RECREATE_TARGET) {
@@ -373,25 +378,16 @@ void MainWindow::OnLButtonDown(int pixelX, int pixelY, DWORD flags) {
 	POINT pt = {pixelX, pixelY};
 	ptMouse = D2D1::Point2F(dipX, dipY);
 
-	switch (mode) {
-		case LineMode: {
-			if (DragDetect(m_hwnd, pt)) {
-				SetCapture(m_hwnd);
-				Line::Insert(&ptMouse, &shapes, &selection, &nextColor);
-			}
-			break;
-		}
-		case EllipseMode: {
-			if (DragDetect(m_hwnd, pt)) {
-				SetCapture(m_hwnd);
-				Elli::Insert(&ptMouse, &shapes, &selection, &nextColor);
-			}
-			break;
-		}
+	switch (shapemode) {
+		case LineMode:
+		case EllipseMode:
 		case SquareMode: {
-			if (DragDetect(m_hwnd, pt)) {
+			if (drawmode == DrawMode::ClickDraw) {
+				ClickDraw();
+			}
+			if (drawmode == DrawMode::DragDraw && DragDetect(m_hwnd, pt)) {
 				SetCapture(m_hwnd);
-				Square::Insert(&ptMouse, &shapes, &selection, &nextColor);
+				DragDraw();
 			}
 			break;
 		}
@@ -400,19 +396,25 @@ void MainWindow::OnLButtonDown(int pixelX, int pixelY, DWORD flags) {
 			if (HitTest(dipX, dipY)) {
 				SetCapture(m_hwnd);
 				ptMouse = D2D1::Point2F(dipX, dipY);
-				SetMode(DragMode);
+				SetShapeMode(DragMode);
 			}
 	}
 	InvalidateRect(m_hwnd, NULL, FALSE);
 }
 
+void MainWindow::OnLButtonDouble(int pixelX, int pixelY, DWORD flags) {
+	if (drawmode == DrawMode::ClickDraw) {
+		newShape = NULL;
+	}
+}
+
 // 抬起鼠标左键
 void MainWindow::OnLButtonUp() {
-	if (mode <= 2 && Selection()) {
-		ClearSelection();
+	if (shapemode <= 2 && drawmode == DrawMode::DragDraw) {
+		newShape = NULL;
 		InvalidateRect(m_hwnd, NULL, FALSE);
-	} else if (mode == DragMode) {
-		SetMode(SelectMode);
+	} else if (shapemode == DragMode) {
+		SetShapeMode(SelectMode);
 	}
 	ReleaseCapture();
 }
@@ -421,13 +423,14 @@ void MainWindow::OnLButtonUp() {
 void MainWindow::OnMouseMove(int pixelX, int pixelY, DWORD flags) {
 	const float dipX = DPIScale::PixelsToDipsX(pixelX);
 	const float dipY = DPIScale::PixelsToDipsY(pixelY);
+	D2D1_POINT_2F nowMouse = D2D1::Point2F(dipX, dipY);
 
 	if (flags & MK_LBUTTON) {
-		if (mode <= 2 && Selection()) {
-			Selection()->Change(ptMouse, dipX, dipY);
-		} else if (mode == DragMode) {
-			Selection()->Drag(ptMouse, dipX, dipY);
-			ptMouse = D2D1::Point2F(dipX, dipY);
+		if (shapemode <= 2 && newShape && drawmode == DrawMode::DragDraw) {
+			newShape->points[1] = nowMouse;
+		} else if (shapemode == DragMode) {
+			Selection()->Drag(ptMouse, nowMouse);
+			ptMouse = nowMouse;
 		}
 		InvalidateRect(m_hwnd, NULL, FALSE);
 	}
@@ -445,11 +448,11 @@ BOOL MainWindow::HitTest(float x, float y) {
 }
 
 // 设置模式
-void MainWindow::SetMode(Mode m) {
-	mode = m;
+void MainWindow::SetShapeMode(ShapeMode m) {
+	shapemode = m;
 
 	LPWSTR cursor = 0;
-	switch (mode) {
+	switch (shapemode) {
 		case LineMode:
 			cursor = IDC_CROSS;
 			break;
@@ -474,6 +477,8 @@ void MainWindow::SetMode(Mode m) {
 	hCursor = LoadCursor(NULL, cursor);
 	SetCursor(hCursor);
 }
+
+void MainWindow::SetDrawMode(DrawMode m) { drawmode = m; }
 
 // 主程序
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
@@ -545,7 +550,7 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 				return -1;
 			}
 			DPIScale::Initialize(m_hwnd);
-			SetMode(EllipseMode);
+			SetShapeMode(EllipseMode);
 			return 0;
 
 		case WM_DESTROY:
@@ -567,6 +572,11 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 						  (DWORD)wParam);
 			return 0;
 
+		case WM_LBUTTONDBLCLK:
+			OnLButtonDouble(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam),
+							(DWORD)wParam);
+			return 0;
+
 		case WM_LBUTTONUP:
 			OnLButtonUp();
 			return 0;
@@ -586,27 +596,35 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 		case WM_COMMAND:
 			switch (LOWORD(wParam)) {
 				case ID_L_MODE:
-					SetMode(LineMode);
+					SetShapeMode(LineMode);
 					break;
 
 				case ID_E_MODE:
-					SetMode(EllipseMode);
+					SetShapeMode(EllipseMode);
 					break;
 
 				case ID_S_MODE:
-					SetMode(SquareMode);
+					SetShapeMode(SquareMode);
 					break;
 
 				case ID_SELECT_MODE:
-					SetMode(SelectMode);
+					SetShapeMode(SelectMode);
 					break;
 
 				case ID_TOGGLE_MODE:
-					if (mode <= 2) {
-						SetMode(SelectMode);
+					if (shapemode <= 2) {
+						SetShapeMode(SelectMode);
 					} else {
-						SetMode(EllipseMode);
+						SetShapeMode(EllipseMode);
 					}
+					break;
+
+				case ID_CLICK:
+					SetDrawMode(DrawMode::ClickDraw);
+					break;
+
+				case ID_DRAG:
+					SetDrawMode(DrawMode::DragDraw);
 					break;
 
 				case ID_READ:
