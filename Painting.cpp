@@ -75,8 +75,7 @@ class Shape {
 	virtual BOOL HitTest(float x, float y) { return FALSE; }
 	virtual void Drag(D2D1_POINT_2F ptMouse, D2D1_POINT_2F nowMouse);
 	virtual void Save(fstream* myFile);
-	static shared_ptr<Shape> ReadCommon(string myString,
-										list<shared_ptr<Shape>>* shapes);
+	static void ReadCommon(string myString, list<shared_ptr<Shape>>* shapes);
 };
 
 void Shape::Drag(D2D1_POINT_2F ptMouse, D2D1_POINT_2F nowMouse) {
@@ -192,23 +191,19 @@ map<int, function<void(list<shared_ptr<Shape>>* shapes, size_t* nextColor)>>
 	pushmap{
 		{LineK, Line::Push}, {EllipseK, Elli::Push}, {SquareK, Square::Push}};
 
-shared_ptr<Shape> Shape::ReadCommon(string myString,
-									list<shared_ptr<Shape>>* shapes) {
+void Shape::ReadCommon(string myString, list<shared_ptr<Shape>>* shapes) {
 	int k;
-	size_t nextColor;
 	stringstream ins(myString);
 	ins >> k;
-	pushmap[k](shapes, &nextColor);
+	pushmap[k](shapes, new (size_t));
 	shapes->back()->shapekind = k;
 	ins >> shapes->back()->color;
 	float x, y;
 	while (ins >> x, ins >> y) {
-		string str;
 		shapes->back()->points.push_back(D2D1::Point2F());
 		shapes->back()->points.back().x = x;
 		shapes->back()->points.back().y = y;
 	}
-	return shapes->back();
 }
 
 // 窗口
@@ -258,9 +253,7 @@ class MainWindow : public BaseWindow<MainWindow> {
 	void SetShapeKind(ShapeKind m);
 	void SetDrawMode(DrawMode m);
 
-	void CreateShape();
-	void DragDraw();
-	void ClickDraw();
+	void Draw();
 
 	void ReadFile();
 	void SaveFile();
@@ -268,22 +261,13 @@ class MainWindow : public BaseWindow<MainWindow> {
 	LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
 };
 
-void MainWindow::CreateShape() {
-	pushmap[shapekind](&shapes, &nextColor);
-	newShape = shapes.back();
-}
-
-void MainWindow::DragDraw() {
-	CreateShape();
-	newShape->points.push_back(ptMouse);
-	newShape->points.push_back(ptMouse);
-}
-
-void MainWindow::ClickDraw() {
+void MainWindow::Draw() {
 	if (newShape == NULL) {
-		CreateShape();
+		pushmap[shapekind](&shapes, &nextColor);
+		newShape = shapes.back();
 	}
 	newShape->points.push_back(ptMouse);
+	if (drawmode == DrawMode::DragDraw) newShape->points.push_back(ptMouse);
 }
 
 // 创建图形资源
@@ -358,13 +342,7 @@ void MainWindow::OnLButtonDown(int pixelX, int pixelY, DWORD flags) {
 
 	switch (mousemode) {
 		case PaintMode: {
-			if (drawmode == DrawMode::ClickDraw) {
-				ClickDraw();
-			}
-			if (drawmode == DrawMode::DragDraw && DragDetect(m_hwnd, pt)) {
-				SetCapture(m_hwnd);
-				DragDraw();
-			}
+			Draw();
 			break;
 		}
 		case SelectMode:
