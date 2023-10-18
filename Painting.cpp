@@ -17,7 +17,7 @@ using std::vector;
 #include "basewin.h"
 #include "resource.h"
 
-enum ShapeMode { LineMode, SquareMode, EllipseMode, SelectMode, DragMode };
+enum MouseMode { PaintMode, SelectMode, DragMode };
 enum DrawMode { DragDraw, ClickDraw };
 enum ShapeKind { LineK, SquareK, EllipseK };
 
@@ -55,10 +55,6 @@ class DPIScale {
 
 float DPIScale::scaleX = 1.0f;
 float DPIScale::scaleY = 1.0f;
-
-class Elli;
-class Line;
-class Square;
 
 // 图形
 class Shape {
@@ -237,7 +233,8 @@ class MainWindow : public BaseWindow<MainWindow> {
 		  pBrush(NULL),
 		  ptMouse(D2D1::Point2F()),
 		  nextColor(0),
-		  shapemode(EllipseMode),
+		  mousemode(PaintMode),
+		  shapekind(EllipseK),
 		  drawmode(DrawMode::DragDraw),
 		  newShape(NULL),
 		  selection(shapes.end()) {}
@@ -253,9 +250,12 @@ class MainWindow : public BaseWindow<MainWindow> {
 		}
 	}
 	size_t nextColor;
-	ShapeMode shapemode;
+	MouseMode mousemode;
 	DrawMode drawmode;
-	void SetShapeMode(ShapeMode m);
+	ShapeKind shapekind;
+
+	void SetMouseMode(MouseMode m);
+	void SetShapeKind(ShapeKind m);
 	void SetDrawMode(DrawMode m);
 
 	void CreateShape();
@@ -269,16 +269,16 @@ class MainWindow : public BaseWindow<MainWindow> {
 };
 
 void MainWindow::CreateShape() {
-	switch (shapemode) {
-		case EllipseMode: {
+	switch (shapekind) {
+		case EllipseK: {
 			shapes.push_back(shared_ptr<Shape>(new Elli(&nextColor, EllipseK)));
 			break;
 		}
-		case LineMode: {
+		case LineK: {
 			shapes.push_back(shared_ptr<Shape>(new Line(&nextColor, LineK)));
 			break;
 		}
-		case SquareMode: {
+		case SquareK: {
 			shapes.push_back(
 				shared_ptr<Shape>(new Square(&nextColor, SquareK)));
 			break;
@@ -370,10 +370,8 @@ void MainWindow::OnLButtonDown(int pixelX, int pixelY, DWORD flags) {
 	POINT pt = {pixelX, pixelY};
 	ptMouse = D2D1::Point2F(dipX, dipY);
 
-	switch (shapemode) {
-		case LineMode:
-		case EllipseMode:
-		case SquareMode: {
+	switch (mousemode) {
+		case PaintMode: {
 			if (drawmode == DrawMode::ClickDraw) {
 				ClickDraw();
 			}
@@ -388,7 +386,7 @@ void MainWindow::OnLButtonDown(int pixelX, int pixelY, DWORD flags) {
 			if (HitTest(dipX, dipY)) {
 				SetCapture(m_hwnd);
 				ptMouse = D2D1::Point2F(dipX, dipY);
-				SetShapeMode(DragMode);
+				SetMouseMode(DragMode);
 			}
 	}
 	InvalidateRect(m_hwnd, NULL, FALSE);
@@ -402,11 +400,11 @@ void MainWindow::OnLButtonDouble(int pixelX, int pixelY, DWORD flags) {
 
 // 抬起鼠标左键
 void MainWindow::OnLButtonUp() {
-	if (shapemode <= 2 && drawmode == DrawMode::DragDraw) {
+	if (mousemode == PaintMode && drawmode == DrawMode::DragDraw) {
 		newShape = NULL;
 		InvalidateRect(m_hwnd, NULL, FALSE);
-	} else if (shapemode == DragMode) {
-		SetShapeMode(SelectMode);
+	} else if (mousemode == DragMode) {
+		SetMouseMode(SelectMode);
 	}
 	ReleaseCapture();
 }
@@ -418,9 +416,10 @@ void MainWindow::OnMouseMove(int pixelX, int pixelY, DWORD flags) {
 	D2D1_POINT_2F nowMouse = D2D1::Point2F(dipX, dipY);
 
 	if (flags & MK_LBUTTON) {
-		if (shapemode <= 2 && newShape && drawmode == DrawMode::DragDraw) {
+		if (mousemode == PaintMode && newShape &&
+			drawmode == DrawMode::DragDraw) {
 			newShape->points[1] = nowMouse;
-		} else if (shapemode == DragMode) {
+		} else if (mousemode == DragMode) {
 			(*selection)->Drag(ptMouse, nowMouse);
 			ptMouse = nowMouse;
 		}
@@ -440,20 +439,12 @@ BOOL MainWindow::HitTest(float x, float y) {
 }
 
 // 设置模式
-void MainWindow::SetShapeMode(ShapeMode m) {
-	shapemode = m;
+void MainWindow::SetMouseMode(MouseMode m) {
+	mousemode = m;
 
 	LPWSTR cursor = 0;
-	switch (shapemode) {
-		case LineMode:
-			cursor = IDC_CROSS;
-			break;
-
-		case SquareMode:
-			cursor = IDC_CROSS;
-			break;
-
-		case EllipseMode:
+	switch (mousemode) {
+		case PaintMode:
 			cursor = IDC_CROSS;
 			break;
 
@@ -471,6 +462,8 @@ void MainWindow::SetShapeMode(ShapeMode m) {
 }
 
 void MainWindow::SetDrawMode(DrawMode m) { drawmode = m; }
+
+void MainWindow::SetShapeKind(ShapeKind m) { shapekind = m; }
 
 // 主程序
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
@@ -541,7 +534,7 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 				return -1;
 			}
 			DPIScale::Initialize(m_hwnd);
-			SetShapeMode(EllipseMode);
+			SetMouseMode(PaintMode);
 			return 0;
 
 		case WM_DESTROY:
@@ -587,26 +580,29 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 		case WM_COMMAND:
 			switch (LOWORD(wParam)) {
 				case ID_L_MODE:
-					SetShapeMode(LineMode);
+					SetMouseMode(PaintMode);
+					SetShapeKind(LineK);
 					break;
 
 				case ID_E_MODE:
-					SetShapeMode(EllipseMode);
+					SetMouseMode(PaintMode);
+					SetShapeKind(EllipseK);
 					break;
 
 				case ID_S_MODE:
-					SetShapeMode(SquareMode);
+					SetMouseMode(PaintMode);
+					SetShapeKind(SquareK);
 					break;
 
 				case ID_SELECT_MODE:
-					SetShapeMode(SelectMode);
+					SetMouseMode(SelectMode);
 					break;
 
 				case ID_TOGGLE_MODE:
-					if (shapemode <= 2) {
-						SetShapeMode(SelectMode);
+					if (mousemode == PaintMode) {
+						SetMouseMode(SelectMode);
 					} else {
-						SetShapeMode(EllipseMode);
+						SetMouseMode(PaintMode);
 					}
 					break;
 
