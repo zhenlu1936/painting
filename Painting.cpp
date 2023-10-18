@@ -64,9 +64,11 @@ class Square;
 class Shape {
    public:
 	int color;
+	int shapekind;
 	vector<D2D1_POINT_2F> points;
 	Shape() : color(0) {}
-	Shape(size_t* nextColor) {
+	Shape(size_t* nextColor, ShapeKind shape) {
+		shapekind = shape;
 		color = *nextColor;
 		*nextColor = (*nextColor + 1) % ARRAYSIZE(colors);
 	}
@@ -74,8 +76,7 @@ class Shape {
 	virtual void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {}
 	virtual BOOL HitTest(float x, float y) { return FALSE; }
 	virtual void Drag(D2D1_POINT_2F ptMouse, D2D1_POINT_2F nowMouse);
-	virtual void Save(fstream* myFile) {}
-	virtual void SaveCommon(fstream* myFile);
+	virtual void Save(fstream* myFile);
 	static void ReadCommon(string myString, Shape* nowShape);
 };
 
@@ -86,7 +87,8 @@ void Shape::Drag(D2D1_POINT_2F ptMouse, D2D1_POINT_2F nowMouse) {
 	}
 }
 
-void Shape::SaveCommon(fstream* myFile) {
+void Shape::Save(fstream* myFile) {
+	*myFile << to_string(shapekind) << " ";
 	*myFile << to_string(color) << " ";
 	for (auto i : points) {
 		*myFile << to_string(i.x) << " ";
@@ -97,11 +99,14 @@ void Shape::SaveCommon(fstream* myFile) {
 
 void Shape::ReadCommon(string myString, Shape* nowShape) {
 	stringstream ins(myString);
+	ins >> nowShape->shapekind;
 	ins >> nowShape->color;
-	while (ins) {
+	float x, y;
+	while (ins >> x, ins >> y) {
+		string str;
 		nowShape->points.push_back(D2D1::Point2F());
-		ins >> nowShape->points.back().x;
-		ins >> nowShape->points.back().y;
+		nowShape->points.back().x = x;
+		nowShape->points.back().y = y;
 	}
 }
 
@@ -110,7 +115,7 @@ class Elli : public Shape {
    public:
 	D2D1_ELLIPSE ellipse;
 	Elli() : Shape() {}
-	Elli(size_t* nextColor) : Shape(nextColor) {}
+	Elli(size_t* nextColor, ShapeKind shape) : Shape(nextColor, shape) {}
 
 	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
 		if (points.size() >= 2) {
@@ -134,11 +139,6 @@ class Elli : public Shape {
 		const float d = ((x1 * x1) / (a * a)) + ((y1 * y1) / (b * b));
 		return d <= 1.0f;
 	}
-	void Save(fstream* myFile) {
-		*myFile << "E"
-				<< " ";
-		SaveCommon(myFile);
-	}
 	static void Read(string myString, list<shared_ptr<Shape>>* shapes) {
 		Elli* newElli = new Elli;
 		ReadCommon(myString, newElli);
@@ -150,7 +150,7 @@ class Elli : public Shape {
 class Line : public Shape {
    public:
 	Line() : Shape() {}
-	Line(size_t* nextColor) : Shape(nextColor) {}
+	Line(size_t* nextColor, ShapeKind shape) : Shape(nextColor, shape) {}
 
 	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
 		if (points.size() >= 2) {
@@ -168,11 +168,6 @@ class Line : public Shape {
 			   y >= min(y1, y2) &&
 			   abs((x - x1) / (y - y1) - (x - x2) / (y - y2)) <= 0.05;
 	}
-	void Save(fstream* myFile) {
-		*myFile << "L"
-				<< " ";
-		SaveCommon(myFile);
-	}
 	static void Read(string myString, list<shared_ptr<Shape>>* shapes) {
 		Line* newLine = new Line;
 		ReadCommon(myString, newLine);
@@ -185,7 +180,7 @@ class Square : public Shape {
    public:
 	D2D1_RECT_F square;
 	Square() : Shape() {}
-	Square(size_t* nextColor) : Shape(nextColor) {}
+	Square(size_t* nextColor, ShapeKind shape) : Shape(nextColor, shape) {}
 
 	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
 		if (points.size() >= 2) {
@@ -205,11 +200,6 @@ class Square : public Shape {
 		const float y2 = square.bottom;
 		return x <= max(x1, x2) && x >= min(x1, x2) && y <= max(y1, y2) &&
 			   y >= min(y1, y2);
-	}
-	void Save(fstream* myFile) {
-		*myFile << "S"
-				<< " ";
-		SaveCommon(myFile);
 	}
 	static void Read(string myString, list<shared_ptr<Shape>>* shapes) {
 		Square* newSquare = new Square;
@@ -254,8 +244,8 @@ class MainWindow : public BaseWindow<MainWindow> {
 
 	shared_ptr<Shape> newShape;
 	list<shared_ptr<Shape>> shapes;
-	list<shared_ptr<Shape>>::iterator selection;  // 急需更改
-	shared_ptr<Shape> Selection() {				  // 急需更改
+	list<shared_ptr<Shape>>::iterator selection;
+	shared_ptr<Shape> Selection() {
 		if (selection == shapes.end()) {
 			return nullptr;
 		} else {
@@ -281,15 +271,16 @@ class MainWindow : public BaseWindow<MainWindow> {
 void MainWindow::CreateShape() {
 	switch (shapemode) {
 		case EllipseMode: {
-			shapes.push_back(shared_ptr<Shape>(new Elli(&nextColor)));
+			shapes.push_back(shared_ptr<Shape>(new Elli(&nextColor, EllipseK)));
 			break;
 		}
 		case LineMode: {
-			shapes.push_back(shared_ptr<Shape>(new Line(&nextColor)));
+			shapes.push_back(shared_ptr<Shape>(new Line(&nextColor, LineK)));
 			break;
 		}
 		case SquareMode: {
-			shapes.push_back(shared_ptr<Shape>(new Square(&nextColor)));
+			shapes.push_back(
+				shared_ptr<Shape>(new Square(&nextColor, SquareK)));
 			break;
 		}
 	}
@@ -347,7 +338,7 @@ void MainWindow::OnPaint() {
 
 		pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::SkyBlue));
 		for (auto i = shapes.begin(); i != shapes.end(); ++i) {
-			if ((*i) != newShape || drawmode == DrawMode::DragDraw)
+			if (((*i) != newShape || drawmode == DrawMode::DragDraw))
 				(*i)->Draw(pRenderTarget, pBrush);
 		}
 		hr = pRenderTarget->EndDraw();
@@ -430,7 +421,7 @@ void MainWindow::OnMouseMove(int pixelX, int pixelY, DWORD flags) {
 		if (shapemode <= 2 && newShape && drawmode == DrawMode::DragDraw) {
 			newShape->points[1] = nowMouse;
 		} else if (shapemode == DragMode) {
-			Selection()->Drag(ptMouse, nowMouse);
+			(*selection)->Drag(ptMouse, nowMouse);
 			ptMouse = nowMouse;
 		}
 		InvalidateRect(m_hwnd, NULL, FALSE);
@@ -511,16 +502,15 @@ void MainWindow::ReadFile() {
 		string myString;
 		while (myFile) {
 			getline(myFile, myString);
-			stringstream ins(myString);
-			char kind = myString[0];
-			myString.erase(0, 2);
-			if (kind == 'E') {
+			if (myString.size() == 0) break;
+			int shapekind = atoi(&myString[0]);
+			if (shapekind == ShapeKind::EllipseK) {
 				Elli::Read(myString, &shapes);
 			}
-			if (kind == 'L') {
+			if (shapekind == ShapeKind::LineK) {
 				Line::Read(myString, &shapes);
 			}
-			if (kind == 'S') {
+			if (shapekind == ShapeKind::SquareK) {
 				Square::Read(myString, &shapes);
 			}
 		}
