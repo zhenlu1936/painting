@@ -21,7 +21,7 @@ using std::vector;
 
 enum MouseMode { PaintMode, SelectMode, DragMode };
 enum DrawMode { DragDraw, ClickDraw };
-enum ShapeKind { LineK, SquareK, EllipseK };
+enum ShapeKind { LineK, SquareK, EllipseK, GeometryK };
 
 // 颜色枚举
 D2D1::ColorF::Enum colors[] = {D2D1::ColorF::Yellow, D2D1::ColorF::Salmon,
@@ -71,7 +71,8 @@ class Shape {
 		*nextColor = (*nextColor + 1) % ARRAYSIZE(colors);
 	}
 
-	virtual void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {}
+	virtual void Draw(ID2D1Factory* pFactory, ID2D1RenderTarget* pRT,
+					  ID2D1SolidColorBrush* pBrush) {}
 	virtual BOOL HitTest(float x, float y) { return FALSE; }
 	virtual void Drag(D2D1_POINT_2F ptMouse, D2D1_POINT_2F nowMouse);
 	virtual void Save(fstream* myFile);
@@ -99,14 +100,15 @@ void Shape::Save(fstream* myFile) {
 class Elli : public Shape {
    public:
 	D2D1_ELLIPSE ellipse;
-	Elli() : Shape() {}
 	Elli(size_t* nextColor) : Shape(nextColor, EllipseK) {}
 
 	static void Push(list<shared_ptr<Shape>>* shapes, size_t* nextColor) {
 		shapes->push_back(shared_ptr<Shape>(new Elli(nextColor)));
 	}
-	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
+	void Draw(ID2D1Factory* pFactory, ID2D1RenderTarget* pRT,
+			  ID2D1SolidColorBrush* pBrush) {
 		if (points.size() >= 2) {
+			points.erase(points.begin() + 2, points.end());
 			ellipse =
 				D2D1::Ellipse(D2D1::Point2F((points[0].x + points[1].x) / 2,
 											(points[0].y + points[1].y) / 2),
@@ -120,39 +122,46 @@ class Elli : public Shape {
 			free(this);
 	}
 	BOOL HitTest(float x, float y) {
-		const float a = ellipse.radiusX;
-		const float b = ellipse.radiusY;
-		const float x1 = x - ellipse.point.x;
-		const float y1 = y - ellipse.point.y;
-		const float d = ((x1 * x1) / (a * a)) + ((y1 * y1) / (b * b));
-		return d <= 1.0f;
+		if (points.size() >= 2) {
+			const float a = ellipse.radiusX;
+			const float b = ellipse.radiusY;
+			const float x1 = x - ellipse.point.x;
+			const float y1 = y - ellipse.point.y;
+			const float d = ((x1 * x1) / (a * a)) + ((y1 * y1) / (b * b));
+			return d <= 1.0f;
+		} else
+			return FALSE;
 	}
 };
 
 // 直线
 class Line : public Shape {
    public:
-	Line() : Shape() {}
 	Line(size_t* nextColor) : Shape(nextColor, LineK) {}
 
 	static void Push(list<shared_ptr<Shape>>* shapes, size_t* nextColor) {
 		shapes->push_back(shared_ptr<Shape>(new Line(nextColor)));
 	}
-	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
+	void Draw(ID2D1Factory* pFactory, ID2D1RenderTarget* pRT,
+			  ID2D1SolidColorBrush* pBrush) {
 		if (points.size() >= 2) {
+			points.erase(points.begin() + 2, points.end());
 			pBrush->SetColor(D2D1::ColorF(colors[color]));
 			pRT->DrawLine(points[0], points[1], pBrush);
 		} else
 			free(this);
 	}
 	BOOL HitTest(float x, float y) {
-		const float x1 = points[0].x;
-		const float x2 = points[1].x;
-		const float y1 = points[0].y;
-		const float y2 = points[1].y;
-		return x <= max(x1, x2) && x >= min(x1, x2) && y <= max(y1, y2) &&
-			   y >= min(y1, y2) &&
-			   abs((x - x1) / (y - y1) - (x - x2) / (y - y2)) <= 0.05;
+		if (points.size() >= 2) {
+			const float x1 = points[0].x;
+			const float x2 = points[1].x;
+			const float y1 = points[0].y;
+			const float y2 = points[1].y;
+			return x <= max(x1, x2) && x >= min(x1, x2) && y <= max(y1, y2) &&
+				   y >= min(y1, y2) &&
+				   abs((x - x1) / (y - y1) - (x - x2) / (y - y2)) <= 0.05;
+		} else
+			return FALSE;
 	}
 };
 
@@ -160,14 +169,15 @@ class Line : public Shape {
 class Square : public Shape {
    public:
 	D2D1_RECT_F square;
-	Square() : Shape() {}
 	Square(size_t* nextColor) : Shape(nextColor, SquareK) {}
 
 	static void Push(list<shared_ptr<Shape>>* shapes, size_t* nextColor) {
 		shapes->push_back(shared_ptr<Shape>(new Square(nextColor)));
 	}
-	void Draw(ID2D1RenderTarget* pRT, ID2D1SolidColorBrush* pBrush) {
+	void Draw(ID2D1Factory* pFactory, ID2D1RenderTarget* pRT,
+			  ID2D1SolidColorBrush* pBrush) {
 		if (points.size() >= 2) {
+			points.erase(points.begin() + 2, points.end());
 			square =
 				D2D1::RectF(points[0].x, points[0].y, points[1].x, points[1].y);
 			pBrush->SetColor(D2D1::ColorF(colors[color]));
@@ -178,18 +188,54 @@ class Square : public Shape {
 			free(this);
 	}
 	BOOL HitTest(float x, float y) {
-		const float x1 = square.left;
-		const float y1 = square.top;
-		const float x2 = square.right;
-		const float y2 = square.bottom;
-		return x <= max(x1, x2) && x >= min(x1, x2) && y <= max(y1, y2) &&
-			   y >= min(y1, y2);
+		if (points.size() >= 2) {
+			const float x1 = square.left;
+			const float y1 = square.top;
+			const float x2 = square.right;
+			const float y2 = square.bottom;
+			return x <= max(x1, x2) && x >= min(x1, x2) && y <= max(y1, y2) &&
+				   y >= min(y1, y2);
+		} else
+			return FALSE;
 	}
 };
 
+class Geometry : public Shape {
+   public:
+	ID2D1PathGeometry* geometry;
+	Geometry(size_t* nextColor) : Shape(nextColor, GeometryK) {}
+
+	static void Push(list<shared_ptr<Shape>>* shapes, size_t* nextColor) {
+		shapes->push_back(shared_ptr<Shape>(new Geometry(nextColor)));
+	}
+	void Draw(ID2D1Factory* pFactory, ID2D1RenderTarget* pRT,
+			  ID2D1SolidColorBrush* pBrush) {
+		if (points.size() >= 2) {
+			pFactory->CreatePathGeometry(&geometry);
+			ID2D1GeometrySink* pSink = NULL;
+			geometry->Open(&pSink);
+
+			D2D1_POINT_2F pointsArr[MAX_SIZE];
+			copy(points.begin(), points.end(), pointsArr);
+			pSink->SetFillMode(D2D1_FILL_MODE_WINDING);
+			pSink->BeginFigure(points.back(), D2D1_FIGURE_BEGIN_FILLED);
+			pSink->AddLines(pointsArr, points.size());
+			pSink->EndFigure(D2D1_FIGURE_END_CLOSED);
+			pSink->Close();
+			pBrush->SetColor(D2D1::ColorF(colors[color]));
+			pRT->FillGeometry(geometry, pBrush);
+			pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
+			pRT->DrawGeometry(geometry, pBrush);
+		};
+	}
+	BOOL HitTest(float x, float y) { return FALSE; }
+};
+
 map<int, function<void(list<shared_ptr<Shape>>* shapes, size_t* nextColor)>>
-	pushmap{
-		{LineK, Line::Push}, {EllipseK, Elli::Push}, {SquareK, Square::Push}};
+	pushmap{{LineK, Line::Push},
+			{EllipseK, Elli::Push},
+			{SquareK, Square::Push},
+			{GeometryK, Geometry::Push}};
 
 void Shape::ReadCommon(string myString, list<shared_ptr<Shape>>* shapes) {
 	int k;
@@ -309,7 +355,7 @@ void MainWindow::OnPaint() {
 		pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::SkyBlue));
 		for (auto i = shapes.begin(); i != shapes.end(); ++i) {
 			if (((*i) != newShape || drawmode == DrawMode::DragDraw))
-				(*i)->Draw(pRenderTarget, pBrush);
+				(*i)->Draw(pFactory, pRenderTarget, pBrush);
 		}
 		hr = pRenderTarget->EndDraw();
 		if (FAILED(hr) || hr == D2DERR_RECREATE_TARGET) {
@@ -548,6 +594,11 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 				case ID_S_MODE:
 					SetMouseMode(PaintMode);
 					SetShapeKind(SquareK);
+					break;
+
+				case ID_G_MODE:
+					SetMouseMode(PaintMode);
+					SetShapeKind(GeometryK);
 					break;
 
 				case ID_SELECT_MODE:

@@ -4,11 +4,14 @@
 IDR_ACCEL1 ACCELERATORS
 {
     0x4D,   ID_TOGGLE_MODE, VIRTKEY, CONTROL    // ctrl-M
-    0x70,   ID_L_MODE, VIRTKEY               // F1
-    0x71,   ID_E_MODE, VIRTKEY               // F2
-    0x72,   ID_S_MODE, VIRTKEY             // F3
-    0x73,   ID_SELECT_MODE, VIRTKEY             // F4
+    0x31,   ID_L_MODE, VIRTKEY               // 1
+    0x32,   ID_E_MODE, VIRTKEY               // 2
+    0x33,   ID_S_MODE, VIRTKEY             // 3
+    0x34,   ID_G_MODE, VIRTKEY              // 4
+    0x70,   ID_SELECT_MODE, VIRTKEY 		// F1
     0x52,   ID_READ, VIRTKEY             // R
     0x53,   ID_SAVE, VIRTKEY             // S
+    0x43,   ID_CLICK, VIRTKEY           // C
+    0x44,   ID_DRAG, VIRTKEY            // D
 }
 //</Snippetinput_rc>
