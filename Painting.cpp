@@ -63,9 +63,13 @@ class Shape {
    public:
 	int color;
 	int shapekind;
+	BOOL first;
+	BOOL complete;
 	vector<D2D1_POINT_2F> points;
-	Shape() : color(0) {}
+	Shape() : color(0), first(FALSE), complete(FALSE) {}
 	Shape(size_t* nextColor, ShapeKind shape) {
+		first = FALSE;
+		complete = FALSE;
 		shapekind = shape;
 		color = *nextColor;
 		*nextColor = (*nextColor + 1) % ARRAYSIZE(colors);
@@ -73,11 +77,23 @@ class Shape {
 
 	virtual void Draw(ID2D1Factory* pFactory, ID2D1RenderTarget* pRT,
 					  ID2D1SolidColorBrush* pBrush) {}
+	virtual BOOL DetectNotFirst();
 	virtual BOOL HitTest(float x, float y) { return FALSE; }
 	virtual void Drag(D2D1_POINT_2F ptMouse, D2D1_POINT_2F nowMouse);
 	virtual void Save(fstream* myFile);
 	static void ReadCommon(string myString, list<shared_ptr<Shape>>* shapes);
 };
+
+BOOL Shape::DetectNotFirst() {
+	if (points.size() >= 2) {
+		first = TRUE;
+		complete = TRUE;
+		points.erase(points.begin() + 2, points.end());
+		return TRUE;
+	} else {
+		return FALSE;
+	}
+}
 
 void Shape::Drag(D2D1_POINT_2F ptMouse, D2D1_POINT_2F nowMouse) {
 	for (auto i = points.begin(); i != points.end(); i++) {
@@ -105,21 +121,17 @@ class Elli : public Shape {
 	static void Push(list<shared_ptr<Shape>>* shapes, size_t* nextColor) {
 		shapes->push_back(shared_ptr<Shape>(new Elli(nextColor)));
 	}
+
 	void Draw(ID2D1Factory* pFactory, ID2D1RenderTarget* pRT,
 			  ID2D1SolidColorBrush* pBrush) {
-		if (points.size() >= 2) {
-			points.erase(points.begin() + 2, points.end());
-			ellipse =
-				D2D1::Ellipse(D2D1::Point2F((points[0].x + points[1].x) / 2,
-											(points[0].y + points[1].y) / 2),
-							  (points[0].x - points[1].x) / 2,
-							  (points[0].y - points[1].y) / 2);
-			pBrush->SetColor(D2D1::ColorF(colors[color]));
-			pRT->FillEllipse(ellipse, pBrush);
-			pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
-			pRT->DrawEllipse(ellipse, pBrush);
-		} else
-			free(this);
+		ellipse = D2D1::Ellipse(D2D1::Point2F((points[0].x + points[1].x) / 2,
+											  (points[0].y + points[1].y) / 2),
+								(points[0].x - points[1].x) / 2,
+								(points[0].y - points[1].y) / 2);
+		pBrush->SetColor(D2D1::ColorF(colors[color]));
+		pRT->FillEllipse(ellipse, pBrush);
+		pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
+		pRT->DrawEllipse(ellipse, pBrush);
 	}
 	BOOL HitTest(float x, float y) {
 		if (points.size() >= 2) {
@@ -142,14 +154,11 @@ class Line : public Shape {
 	static void Push(list<shared_ptr<Shape>>* shapes, size_t* nextColor) {
 		shapes->push_back(shared_ptr<Shape>(new Line(nextColor)));
 	}
+
 	void Draw(ID2D1Factory* pFactory, ID2D1RenderTarget* pRT,
 			  ID2D1SolidColorBrush* pBrush) {
-		if (points.size() >= 2) {
-			points.erase(points.begin() + 2, points.end());
-			pBrush->SetColor(D2D1::ColorF(colors[color]));
-			pRT->DrawLine(points[0], points[1], pBrush);
-		} else
-			free(this);
+		pBrush->SetColor(D2D1::ColorF(colors[color]));
+		pRT->DrawLine(points[0], points[1], pBrush);
 	}
 	BOOL HitTest(float x, float y) {
 		if (points.size() >= 2) {
@@ -176,16 +185,13 @@ class Square : public Shape {
 	}
 	void Draw(ID2D1Factory* pFactory, ID2D1RenderTarget* pRT,
 			  ID2D1SolidColorBrush* pBrush) {
-		if (points.size() >= 2) {
-			points.erase(points.begin() + 2, points.end());
-			square =
-				D2D1::RectF(points[0].x, points[0].y, points[1].x, points[1].y);
-			pBrush->SetColor(D2D1::ColorF(colors[color]));
-			pRT->FillRectangle(square, pBrush);
-			pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
-			pRT->DrawRectangle(square, pBrush);
-		} else
-			free(this);
+		points.erase(points.begin() + 2, points.end());
+		square =
+			D2D1::RectF(points[0].x, points[0].y, points[1].x, points[1].y);
+		pBrush->SetColor(D2D1::ColorF(colors[color]));
+		pRT->FillRectangle(square, pBrush);
+		pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
+		pRT->DrawRectangle(square, pBrush);
 	}
 	BOOL HitTest(float x, float y) {
 		if (points.size() >= 2) {
@@ -208,25 +214,31 @@ class Geometry : public Shape {
 	static void Push(list<shared_ptr<Shape>>* shapes, size_t* nextColor) {
 		shapes->push_back(shared_ptr<Shape>(new Geometry(nextColor)));
 	}
+	BOOL DetectNotFirst() {
+		if (points.size() >= 2) {
+			first = TRUE;
+			return TRUE;
+		} else {
+			return FALSE;
+		}
+	}
 	void Draw(ID2D1Factory* pFactory, ID2D1RenderTarget* pRT,
 			  ID2D1SolidColorBrush* pBrush) {
-		if (points.size() >= 2) {
-			pFactory->CreatePathGeometry(&geometry);
-			ID2D1GeometrySink* pSink = NULL;
-			geometry->Open(&pSink);
+		pFactory->CreatePathGeometry(&geometry);
+		ID2D1GeometrySink* pSink = NULL;
+		geometry->Open(&pSink);
 
-			D2D1_POINT_2F pointsArr[MAX_SIZE];
-			copy(points.begin(), points.end(), pointsArr);
-			pSink->SetFillMode(D2D1_FILL_MODE_WINDING);
-			pSink->BeginFigure(points.back(), D2D1_FIGURE_BEGIN_FILLED);
-			pSink->AddLines(pointsArr, points.size());
-			pSink->EndFigure(D2D1_FIGURE_END_CLOSED);
-			pSink->Close();
-			pBrush->SetColor(D2D1::ColorF(colors[color]));
-			pRT->FillGeometry(geometry, pBrush);
-			pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
-			pRT->DrawGeometry(geometry, pBrush);
-		};
+		D2D1_POINT_2F pointsArr[MAX_SIZE];
+		copy(points.begin(), points.end(), pointsArr);
+		pSink->SetFillMode(D2D1_FILL_MODE_WINDING);
+		pSink->BeginFigure(points.back(), D2D1_FIGURE_BEGIN_FILLED);
+		pSink->AddLines(pointsArr, points.size());
+		pSink->EndFigure(D2D1_FIGURE_END_CLOSED);
+		pSink->Close();
+		pBrush->SetColor(D2D1::ColorF(colors[color]));
+		pRT->FillGeometry(geometry, pBrush);
+		pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
+		pRT->DrawGeometry(geometry, pBrush);
 	}
 	BOOL HitTest(float x, float y) { return FALSE; }
 };
@@ -313,7 +325,8 @@ void MainWindow::Draw() {
 		newShape = shapes.back();
 	}
 	newShape->points.push_back(ptMouse);
-	if (drawmode == DrawMode::DragDraw) newShape->points.push_back(ptMouse);
+	if (drawmode == DrawMode::DragDraw && !(newShape->first))
+		newShape->points.push_back(ptMouse);
 }
 
 // 创建图形资源
@@ -354,8 +367,14 @@ void MainWindow::OnPaint() {
 
 		pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::SkyBlue));
 		for (auto i = shapes.begin(); i != shapes.end(); ++i) {
-			if (((*i) != newShape || drawmode == DrawMode::DragDraw))
+			if ((*i)->DetectNotFirst()) {  // 此处若初次便双击，即出错！
 				(*i)->Draw(pFactory, pRenderTarget, pBrush);
+			} else if ((*i)->complete) {
+				auto j = i;
+				if (i != shapes.begin()) i--;
+				shapes.erase(j);
+				if (shapes.empty()) break;
+			}
 		}
 		hr = pRenderTarget->EndDraw();
 		if (FAILED(hr) || hr == D2DERR_RECREATE_TARGET) {
@@ -403,14 +422,14 @@ void MainWindow::OnLButtonDown(int pixelX, int pixelY, DWORD flags) {
 }
 
 void MainWindow::OnLButtonDouble(int pixelX, int pixelY, DWORD flags) {
-	if (drawmode == DrawMode::ClickDraw) {
-		newShape = NULL;
+	if (newShape) {
+		newShape->complete = TRUE;
 	}
 }
 
 // 抬起鼠标左键
 void MainWindow::OnLButtonUp() {
-	if (mousemode == PaintMode && drawmode == DrawMode::DragDraw) {
+	if (mousemode == PaintMode && newShape && newShape->complete) {
 		newShape = NULL;
 		InvalidateRect(m_hwnd, NULL, FALSE);
 	} else if (mousemode == DragMode) {
@@ -426,9 +445,9 @@ void MainWindow::OnMouseMove(int pixelX, int pixelY, DWORD flags) {
 	D2D1_POINT_2F nowMouse = D2D1::Point2F(dipX, dipY);
 
 	if (flags & MK_LBUTTON) {
-		if (mousemode == PaintMode && newShape &&
+		if (mousemode == PaintMode && newShape && newShape->points.size() &&
 			drawmode == DrawMode::DragDraw) {
-			newShape->points[1] = nowMouse;
+			newShape->points.back() = nowMouse;
 		} else if (mousemode == DragMode) {
 			(*selection)->Drag(ptMouse, nowMouse);
 			ptMouse = nowMouse;
